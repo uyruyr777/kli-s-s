@@ -503,19 +503,38 @@ impl Interpreter {
 
             let key = format!("{}.{}", namespace, function);
             if let Some(target) = self.functions.get(&key).cloned() {
-                return self.call_user_function(&target);
+                return self.call_user_function(&target, args);
             }
         }
 
         if let Some(target) = self.functions.get(function).cloned() {
-            return self.call_user_function(&target);
+            return self.call_user_function(&target, args);
         }
 
         panic!("Function '{}' not found", function);
     }
 
-    fn call_user_function(&mut self, function: &FunctionNode) -> Value {
+    fn call_user_function(&mut self, function: &FunctionNode, args: Vec<Value>) -> Value {
+        if args.len() != function.params.len() {
+            panic!(
+                "Function '{}' expects {} argument(s), got {}",
+                function.name,
+                function.params.len(),
+                args.len()
+            );
+        }
+
         self.scope.push();
+
+        for ((param_type, param_name), arg_value) in function.params.iter().zip(args) {
+            let value = match param_type {
+                TypeNode::Ncti => Value::Ncti(arg_value.as_ncti()),
+                TypeNode::Float => Value::Float(arg_value.as_float()),
+                _ => arg_value,
+            };
+            self.scope.declare(param_name, value);
+        }
+
         let flow = self.exec_statements(&function.body);
         self.scope.pop();
 

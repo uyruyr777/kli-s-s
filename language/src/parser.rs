@@ -221,18 +221,68 @@ impl Parser {
         };
         self.advance();
 
-        self.consume(TokenKind::OpenParen);
-        self.consume(TokenKind::CloseParen);
-
+        let params = self.parse_params();
         let body = self.parse_block();
 
-        FunctionNode { name, body }
+        FunctionNode { name, params, body }
     }
 
     fn parse_special_function(&mut self, name: &str) -> FunctionNode {
         self.advance();
         let body = self.parse_block();
-        FunctionNode { name: name.to_string(), body }
+        FunctionNode { name: name.to_string(), params: Vec::new(), body }
+    }
+
+    /// Разбирает список параметров определения функции: `(str#test, int#i)`.
+    /// Формат каждого параметра: `тип#имя`, через запятую, висячая запятая недопустима.
+    fn parse_params(&mut self) -> Vec<(TypeNode, String)> {
+        self.consume(TokenKind::OpenParen);
+        let mut params = Vec::new();
+
+        if !self.check(&TokenKind::CloseParen) {
+            loop {
+                let param_type = self.parse_type();
+                self.consume(TokenKind::Hash);
+                let name = self.expect_identifier();
+                params.push((param_type, name));
+
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        self.consume(TokenKind::CloseParen);
+        params
+    }
+
+    /// Смотрит вперёд через сбалансированные скобки `(...)` начиная с текущей
+    /// `(`, чтобы понять, идёт ли следом `{` (значит это объявление функции
+    /// `$f(...){...}`) или что-то другое (значит это вызов-выражение вида
+    /// `$f(...);`).
+    fn parens_followed_by_brace(&self) -> bool {
+        let mut i = self.pos;
+        let mut depth = 0i32;
+
+        loop {
+            match self.tokens.get(i).map(|t| &t.kind) {
+                Some(TokenKind::OpenParen) => depth += 1,
+                Some(TokenKind::CloseParen) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(i + 1).map(|t| &t.kind),
+                            Some(TokenKind::OpenBrace)
+                        );
+                    }
+                }
+                Some(TokenKind::EOF) | None => return false,
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     fn parse_event_handler(&mut self, namespace: String) -> EventHandlerNode {
@@ -383,7 +433,17 @@ impl Parser {
         match &self.current().kind {
             TokenKind::Hash => Statement::Variable(self.parse_variable()),
 
-            TokenKind::Function(_) => self.parse_function_statement(),
+            // `$name(...)`  -> объявление/вызов функции по имени.
+            // `$name.member(...)` (вызов вложенной функции, например `$v.px();`)
+            // общего вида — уходит в обычный разбор выражения ниже.
+            TokenKind::Function(_)
+                if matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                    Some(TokenKind::OpenParen)
+                ) =>
+            {
+                self.parse_function_statement()
+            }
 
             TokenKind::Keyword(Keyword::Return) => {
                 self.advance();
@@ -480,18 +540,17 @@ impl Parser {
         };
         self.advance();
 
-        self.consume(TokenKind::OpenParen);
-        self.consume(TokenKind::CloseParen);
-
-        if self.check(&TokenKind::OpenBrace) {
+        if self.parens_followed_by_brace() {
+            let params = self.parse_params();
             let body = self.parse_block();
-            Statement::FunctionDef(FunctionNode { name, body })
+            Statement::FunctionDef(FunctionNode { name, params, body })
         } else {
+            let arguments = self.parse_arguments();
             self.consume(TokenKind::Semicolon);
             Statement::Expression(Expression::Call {
                 object: None,
                 function: name,
-                arguments: Vec::new(),
+                arguments,
             })
         }
     }

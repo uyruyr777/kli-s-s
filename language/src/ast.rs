@@ -45,6 +45,7 @@ pub struct VariableNode {
 #[derive(Debug, Clone)]
 pub struct FunctionNode {
     pub name: String,
+    pub params: Vec<(TypeNode, String)>,
     pub body: Vec<Statement>,
 }
 
@@ -65,6 +66,7 @@ pub enum ValueNode {
 
 #[derive(Debug, Clone)]
 pub enum Expression {
+
     Value(ValueNode),
 
     Variable(String),
@@ -108,13 +110,11 @@ pub enum Expression {
 
 #[derive(Debug, Clone)]
 pub enum BinaryOperator {
-
     Add,
     Subtract,
     Multiply,
     Divide,
     Mod,
-
     Equal,
     NotEqual,
     Greater,
@@ -125,7 +125,6 @@ pub enum BinaryOperator {
     NotLess,
     NotGreaterEqual,
     NotLessEqual,
-
     And,
     Or,
 }
