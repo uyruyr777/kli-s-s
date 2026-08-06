@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# Устанавливает интерпретатор KSS как команду `kli-s-s` в /usr/local/bin —
-# доступна всем пользователям системы. Требует sudo (запись в /usr/local/bin).
-# Запускать из корня проекта (там, где лежит Cargo.toml).
 cargo build --release
 
 BIN=$(find target/release -maxdepth 1 -type f -executable ! -name "*.d" | head -n1)
