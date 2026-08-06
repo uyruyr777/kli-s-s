@@ -3,27 +3,27 @@ use crate::value::{Ncti, Value};
 
 pub fn load(runtime: &mut Runtime) {
     runtime
-    .namespace("math")
-    .function("abs", math_abs)
-    .function("pow", math_pow)
-    .function("sqrt", math_sqrt)
-    .function("floor", math_floor)
-    .function("ceil", math_ceil)
-    .function("round", math_round)
-    .function("min", math_min)
-    .function("max", math_max)
-    .function("sin", math_sin)
-    .function("cos", math_cos)
-    .function("tan", math_tan)
-    .function("log", math_log)
-    .function("log10", math_log10)
-    .function("exp", math_exp)
-    .function("pi", math_pi)
-    .function("e", math_e)
-    .function("gcd", math_gcd)
-    .function("lcm", math_lcm)
-    .function("factorial", math_factorial)
-    .function("nctiPow", math_ncti_pow);
+        .namespace("math")
+        .function("abs", math_abs)
+        .function("pow", math_pow)
+        .function("sqrt", math_sqrt)
+        .function("floor", math_floor)
+        .function("ceil", math_ceil)
+        .function("round", math_round)
+        .function("min", math_min)
+        .function("max", math_max)
+        .function("sin", math_sin)
+        .function("cos", math_cos)
+        .function("tan", math_tan)
+        .function("log", math_log)
+        .function("log10", math_log10)
+        .function("exp", math_exp)
+        .function("pi", math_pi)
+        .function("e", math_e)
+        .function("gcd", math_gcd)
+        .function("lcm", math_lcm)
+        .function("factorial", math_factorial)
+        .function("nctiPow", math_ncti_pow);
 }
 
 fn math_abs(args: Vec<Value>) -> Value {
@@ -151,14 +151,13 @@ fn math_lcm(args: Vec<Value>) -> Value {
     }
 }
 
-/// Факториал считается через ncti — обычный int переполнился бы уже на 21!.
 fn math_factorial(args: Vec<Value>) -> Value {
     if args.len() != 1 {
         panic!("math.factorial(n)");
     }
     let n = args[0].as_int();
     if n < 0 {
-        panic!("math.factorial: число не может быть отрицательным");
+        panic!("math.factorial: the number must not be negative");
     }
 
     let mut result = Ncti::from_i64(1);
@@ -169,8 +168,6 @@ fn math_factorial(args: Vec<Value>) -> Value {
     Value::Ncti(result)
 }
 
-/// Возведение ncti-числа в целую неотрицательную степень —
-/// удобно, чтобы наглядно "разогнать" ncti до огромных значений.
 fn math_ncti_pow(args: Vec<Value>) -> Value {
     if args.len() != 2 {
         panic!("math.nctiPow(base, exponent)");
@@ -178,7 +175,7 @@ fn math_ncti_pow(args: Vec<Value>) -> Value {
     let base = args[0].as_ncti();
     let exponent = args[1].as_int();
     if exponent < 0 {
-        panic!("math.nctiPow: отрицательная степень не поддерживается");
+        panic!("math.nctiPow: negative exponents are not supported");
     }
 
     let mut result = Ncti::from_i64(1);

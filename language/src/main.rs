@@ -23,56 +23,47 @@ fn main() {
     println!("KLI-S-S (KSS) v0.1");
     println!("==========================");
 
-    // Загружаем файл программы
     let source = match fs::read_to_string(&path) {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("Не удалось открыть '{}': {}", path, err);
+            eprintln!("Could not open '{}': {}", path, err);
             std::process::exit(1);
         }
     };
 
-    println!("Файл '{}' успешно загружен.", path);
+    println!("File '{}' loaded successfully.", path);
 
-    // Лексер -> токены
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize();
 
-    // Токены -> AST
     let mut parser = Parser::new(tokens);
     let program = parser.parse();
 
-    // Runtime: сначала встроенные функции (доступны всегда, без i:/a:)
     let mut runtime = Runtime::new();
     builtin::load(&mut runtime);
 
-    // Ядра, подключённые через `i:...;`
     for import in &program.imports {
         for name in &import.names {
             if let Err(err) = kernel::load(&mut runtime, name) {
-                eprintln!("Ошибка загрузки ядра: {}", err);
+                eprintln!("Error loading kernel: {}", err);
                 std::process::exit(1);
             }
         }
     }
 
-    // Плагины, подключённые через `a:...;`
     for import in &program.plugins {
         for name in &import.names {
             if let Err(err) = plugin::load(&mut runtime, name) {
-                eprintln!("Ошибка загрузки плагина: {}", err);
+                eprintln!("Error loading plugin: {}", err);
                 std::process::exit(1);
             }
         }
     }
 
-    // Исполняем программу
     let mut interpreter = Interpreter::new(runtime);
     interpreter.run(&program);
 }
 
-/// Разбор аргументов командной строки.
-/// Использование: `kli-s-s -x путь/к/файлу.kss`
 fn parse_args() -> String {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -83,7 +74,7 @@ fn parse_args() -> String {
                 return match args.get(i + 1) {
                     Some(path) => path.clone(),
                     None => {
-                        eprintln!("Ошибка: после -x нужно указать путь к .kss файлу");
+                        eprintln!("Error: -x must be followed by a path to a .kss file");
                         print_usage();
                         std::process::exit(1);
                     }
@@ -94,7 +85,7 @@ fn parse_args() -> String {
                 std::process::exit(0);
             }
             other => {
-                eprintln!("Неизвестный аргумент: {}", other);
+                eprintln!("Unknown argument: {}", other);
                 print_usage();
                 std::process::exit(1);
             }
@@ -106,6 +97,6 @@ fn parse_args() -> String {
 }
 
 fn print_usage() {
-    eprintln!("Использование: kli-s-s -x <файл.kss>");
-    eprintln!("Пример:        kli-s-s -x game.kss");
+    eprintln!("Usage: kli-s-s -x <file.kss>");
+    eprintln!("Example:      kli-s-s -x game.kss");
 }

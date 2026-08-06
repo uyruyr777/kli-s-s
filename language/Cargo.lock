@@ -208,6 +208,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "language"
+version = "0.1.0"
+dependencies = [
+ "minifb",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -246,13 +253,6 @@ name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
-
-[[package]]
-name = "longuage"
-version = "0.1.0"
-dependencies = [
- "minifb",
-]
 
 [[package]]
 name = "memchr"

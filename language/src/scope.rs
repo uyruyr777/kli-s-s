@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::value::Value;
 
-/// Стек областей видимости: одна "область" на программу/блок/вызов функции.
 pub struct Scope {
     frames: Vec<HashMap<String, Value>>,
 }
@@ -12,7 +11,6 @@ impl Scope {
         Self { frames: vec![HashMap::new()] }
     }
 
-    /// Войти в новый блок ({...}) — своя область видимости
     pub fn push(&mut self) {
         self.frames.push(HashMap::new());
     }
@@ -24,16 +22,13 @@ impl Scope {
         }
     }
 
-    /// Объявить новую переменную в текущей (самой внутренней) области
     pub fn declare(&mut self, name: &str, value: Value) {
         self.frames
             .last_mut()
-            .expect("нет активной области видимости")
+            .expect("no active scope")
             .insert(name.to_string(), value);
     }
 
-    /// Присвоить значение уже существующей переменной, ищем от внутренней области к внешней.
-    /// Если переменной нигде нет — создаём её в текущей области (мягкое поведение).
     pub fn set(&mut self, name: &str, value: Value) {
         for frame in self.frames.iter_mut().rev() {
             if frame.contains_key(name) {

@@ -2,7 +2,6 @@ pub mod discord;
 
 use crate::runtime::Runtime;
 
-/// Загрузить внешний плагин
 pub fn load(runtime: &mut Runtime, name: &str) -> Result<(), String> {
 
     match name {
@@ -12,7 +11,7 @@ pub fn load(runtime: &mut Runtime, name: &str) -> Result<(), String> {
             Ok(())
         }
 
-        _ => Err(format!("Плагин '{}' не найден", name))
+        _ => Err(format!("Plugin '{}' not found", name))
 
     }
 

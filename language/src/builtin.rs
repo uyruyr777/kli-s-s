@@ -1,9 +1,6 @@
 use crate::runtime::Runtime;
 use crate::value::Value;
 
-/// Регистрирует функции, которые доступны всегда — без `i:` (ядра) и `a:` (плагины).
-/// Математика теперь в отдельном ядре (`kernel/math.rs`, подключается через `i:math;`) —
-/// здесь остаются только базовые операции над строками/массивами.
 pub fn load(runtime: &mut Runtime) {
     runtime.namespace("str").function("len", str_len);
     runtime.namespace("arr").function("len", arr_len);
@@ -22,6 +19,6 @@ fn arr_len(args: Vec<Value>) -> Value {
     }
     match &args[0] {
         Value::Array(items) => Value::Int(items.len() as i64),
-        _ => panic!("arr.len ожидает массив"),
+        _ => panic!("arr.len expects an array"),
     }
 }

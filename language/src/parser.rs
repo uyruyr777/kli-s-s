@@ -30,7 +30,7 @@ impl Parser {
             self.advance();
         } else {
             panic!(
-                "Ожидался {:?}, найден {:?} ({}:{})",
+                "Expected {:?}, found {:?} ({}:{})",
                 kind,
                 self.current().kind,
                 self.current().line,
@@ -47,15 +47,11 @@ impl Parser {
                 result
             }
             _ => panic!(
-                "Ожидался идентификатор, найден {:?}",
+                "Expected an identifier, found {:?}",
                 self.current().kind
             ),
         }
     }
-
-    // ==========================================
-    // Верхний уровень программы
-    // ==========================================
 
     pub fn parse(&mut self) -> Program {
         let mut program = Program {
@@ -106,19 +102,17 @@ impl Parser {
                             self.advance();
                             program.event_handlers.push(self.parse_event_handler(namespace));
                         }
-                        _ => panic!("Неизвестная конструкция после @"),
+                        _ => panic!("Unknown construct after @"),
                     }
                 }
 
-                _ => panic!("Неожиданный токен {:?}", self.current().kind),
+                _ => panic!("Unexpected token {:?}", self.current().kind),
             }
         }
 
         program
     }
 
-    /// Разбирает `i:system,drive2d,internet;` (ядра) и `a:console;` (плагины) —
-    /// оба варианта отличаются только ключевым словом, поэтому используем один парсер.
     fn parse_import_like(&mut self) -> ImportNode {
         self.advance(); // пропускаем 'i' / 'a'
         self.consume(TokenKind::Colon);
@@ -142,13 +136,12 @@ impl Parser {
             TokenKind::Type(DataType::Ncti) => TypeNode::Ncti,
             TokenKind::Type(DataType::Json) => TypeNode::Json,
             TokenKind::Identifier(name) => TypeNode::Custom(name.clone()),
-            _ => panic!("Ожидался тип, найден {:?}", self.current().kind),
+            _ => panic!("Expected a type, found {:?}", self.current().kind),
         };
         self.advance();
         node
     }
 
-    /// `#int h 100;` или `#int[] arr [1,2,3];`
     fn parse_variable(&mut self) -> VariableNode {
         self.consume(TokenKind::Hash);
         let var_type = self.parse_type();
@@ -163,11 +156,6 @@ impl Parser {
 
         let name = self.expect_identifier();
 
-        // Знак '=' необязателен: и `#int h 100;`, и `#int h = 100;` — валидны.
-        if self.check(&TokenKind::Assign) {
-            self.advance();
-        }
-
         let value = if self.check(&TokenKind::Semicolon) {
             None
         } else {
@@ -179,7 +167,6 @@ impl Parser {
         VariableNode { var_type, is_array, name, value }
     }
 
-    /// Та же переменная, но без завершающей `;` — нужна для `@f(...)`.
     fn parse_variable_no_semicolon(&mut self) -> VariableNode {
         self.consume(TokenKind::Hash);
         let var_type = self.parse_type();
@@ -194,10 +181,6 @@ impl Parser {
 
         let name = self.expect_identifier();
 
-        if self.check(&TokenKind::Assign) {
-            self.advance();
-        }
-
         let value = Some(self.parse_expression());
 
         VariableNode { var_type, is_array, name, value }
@@ -206,7 +189,7 @@ impl Parser {
     fn parse_class(&mut self) -> ClassNode {
         let name = match &self.current().kind {
             TokenKind::Class(name) => name.clone(),
-            _ => panic!("Ожидалось имя класса"),
+            _ => panic!("Expected a class name"),
         };
         self.advance();
 
@@ -220,7 +203,7 @@ impl Parser {
                 TokenKind::Hash => variables.push(self.parse_variable()),
                 TokenKind::Function(_) => functions.push(self.parse_function()),
                 _ => panic!(
-                    "Неожиданный токен внутри класса: {:?}",
+                    "Unexpected token inside class: {:?}",
                     self.current().kind
                 ),
             }
@@ -231,11 +214,10 @@ impl Parser {
         ClassNode { name, variables, functions }
     }
 
-    /// `$f(){ ... }`
     fn parse_function(&mut self) -> FunctionNode {
         let name = match &self.current().kind {
             TokenKind::Function(name) => name.clone(),
-            _ => panic!("Ожидалось имя функции"),
+            _ => panic!("Expected a function name"),
         };
         self.advance();
 
@@ -247,15 +229,12 @@ impl Parser {
         FunctionNode { name, body }
     }
 
-    /// `@start{ ... }` / `@update{ ... }`
     fn parse_special_function(&mut self, name: &str) -> FunctionNode {
-        self.advance(); // пропускаем Keyword(Start/Update)
+        self.advance();
         let body = self.parse_block();
         FunctionNode { name: name.to_string(), body }
     }
 
-    /// `@cons.imput(msgg){ ... }` — обработчик события ядра/плагина.
-    /// Параметр в скобках необязателен: `@cons.tick(){ ... }` тоже допустимо.
     fn parse_event_handler(&mut self, namespace: String) -> EventHandlerNode {
         self.consume(TokenKind::Dot);
         let event = self.expect_identifier();
@@ -273,9 +252,6 @@ impl Parser {
         EventHandlerNode { namespace, event, param, body }
     }
 
-    /// Проверяет, начинается ли текущая позиция (уже стоящая на Identifier)
-    /// с `.поле.#...` или `.#...` — то есть со смены типа/добавления поля,
-    /// а не с обычного присваивания/обращения к полю.
     fn looks_like_retype_or_addfield(&self) -> bool {
         let mut i = self.pos + 1;
 
@@ -293,8 +269,6 @@ impl Parser {
             && matches!(self.tokens.get(i + 1).map(|t| &t.kind), Some(TokenKind::Hash))
     }
 
-    /// `имя.#тип = значение;`, `имя.поле.#тип = значение;` или
-    /// `имя.#new = тип#"ключ":значение;`
     fn parse_retype_or_addfield_statement(&mut self) -> Statement {
         let base = self.expect_identifier();
 
@@ -336,8 +310,21 @@ impl Parser {
         }
     }
 
-    /// Одно поле json-объекта: `тип#"ключ":значение`
-    fn parse_json_field(&mut self) -> (TypeNode, String, Expression) {
+    fn parse_json_field(&mut self) -> (Option<TypeNode>, String, Expression) {
+        if let TokenKind::String(_) = &self.current().kind {
+            let key = match &self.current().kind {
+                TokenKind::String(s) => {
+                    let s = s.clone();
+                    self.advance();
+                    s
+                }
+                _ => unreachable!(),
+            };
+            self.consume(TokenKind::Colon);
+            let value = self.parse_expression();
+            return (None, key, value);
+        }
+
         let field_type = self.parse_type();
         self.consume(TokenKind::Hash);
 
@@ -348,7 +335,7 @@ impl Parser {
                 s
             }
             _ => panic!(
-                "Ожидалась строка-ключ после '#', найден {:?}",
+                "Expected a string key after '#', found {:?}",
                 self.current().kind
             ),
         };
@@ -356,10 +343,9 @@ impl Parser {
         self.consume(TokenKind::Colon);
         let value = self.parse_expression();
 
-        (field_type, key, value)
+        (Some(field_type), key, value)
     }
 
-    /// `{int#"n":1, bool#"b":true, ...}`
     fn parse_json_literal(&mut self) -> Expression {
         self.consume(TokenKind::OpenBrace);
         let mut fields = Vec::new();
@@ -371,7 +357,7 @@ impl Parser {
                 if self.check(&TokenKind::Comma) {
                     self.advance();
                     if self.check(&TokenKind::CloseBrace) {
-                        break; // висячая запятая
+                        break;
                     }
                 } else {
                     break;
@@ -392,10 +378,6 @@ impl Parser {
         self.consume(TokenKind::CloseBrace);
         statements
     }
-
-    // ==========================================
-    // Операторы (statements)
-    // ==========================================
 
     fn parse_statement(&mut self) -> Statement {
         match &self.current().kind {
@@ -436,15 +418,10 @@ impl Parser {
 
             TokenKind::At => self.parse_loop(),
 
-            // `имя[.поле].#тип = значение;` — смена типа переменной/поля,
-            // либо `имя.#new = тип#"ключ":значение;` — добавление поля в json.
             TokenKind::Identifier(_) if self.looks_like_retype_or_addfield() => {
                 self.parse_retype_or_addfield_statement()
             }
 
-            // Сахар: `t + 1;` / `t - 2;` / `t * 2;` / `t / 2;` / `t % 2;`
-            // равнозначно `t = t + 1;` и т. д. — работает только когда
-            // сразу после переменной идёт арифметический оператор.
             TokenKind::Identifier(name)
                 if matches!(
                     self.tokens.get(self.pos + 1).map(|t| &t.kind),
@@ -456,7 +433,7 @@ impl Parser {
                 ) =>
             {
                 let name = name.clone();
-                self.advance(); // имя переменной
+                self.advance();
 
                 let operator = match &self.current().kind {
                     TokenKind::Plus => BinaryOperator::Add,
@@ -466,7 +443,7 @@ impl Parser {
                     TokenKind::Percent => BinaryOperator::Mod,
                     _ => unreachable!(),
                 };
-                self.advance(); // оператор
+                self.advance();
 
                 let right = self.parse_expression();
                 self.consume(TokenKind::Semicolon);
@@ -496,8 +473,6 @@ impl Parser {
         }
     }
 
-    /// Внутри тела функции `$name(){...}` — это объявление вложенной функции
-    /// (`$px(){...}`, вызывается позже как `$v.px()`), а `$name();` — вызов.
     fn parse_function_statement(&mut self) -> Statement {
         let name = match &self.current().kind {
             TokenKind::Function(name) => name.clone(),
@@ -521,7 +496,6 @@ impl Parser {
         }
     }
 
-    /// `?(cond){...}` затем ноль и более `!?(cond){...}`, затем опционально `!{...}`
     fn parse_if(&mut self) -> Statement {
         self.consume(TokenKind::Question);
         self.consume(TokenKind::OpenParen);
@@ -547,7 +521,6 @@ impl Parser {
                 else_body = self.parse_block();
                 break;
             } else {
-                // '!' относится не к этому if — откатываемся и выходим
                 self.pos = save;
                 break;
             }
@@ -556,7 +529,6 @@ impl Parser {
         Statement::If { condition, body, else_if, else_body }
     }
 
-    /// `@w(cond){...}` или `@f(init; cond; step){...}`
     fn parse_loop(&mut self) -> Statement {
         self.consume(TokenKind::At);
 
@@ -584,13 +556,12 @@ impl Parser {
             }
 
             _ => panic!(
-                "Ожидался 'w' или 'f' после '@', найден {:?}",
+                "Expected 'w' or 'f' after '@', found {:?}",
                 self.current().kind
             ),
         }
     }
 
-    /// Одна секция `init`/`step` в `@f(...)` — без завершающей `;`.
     fn parse_for_clause(&mut self) -> Statement {
         if self.check(&TokenKind::Hash) {
             return Statement::Variable(self.parse_variable_no_semicolon());
@@ -605,10 +576,6 @@ impl Parser {
             Statement::Expression(expr)
         }
     }
-
-    // ==========================================
-    // Выражения
-    // ==========================================
 
     fn parse_expression(&mut self) -> Expression {
         self.parse_logical()
@@ -712,7 +679,6 @@ impl Parser {
         }
     }
 
-    /// Обрабатывает `.member`, `.function(args)`, `[index]` и вызов `name(args)`.
     fn parse_postfix(&mut self) -> Expression {
         let mut expr = self.parse_primary();
 
@@ -721,8 +687,6 @@ impl Parser {
                 TokenKind::Dot => {
                     self.advance();
 
-                    // Имя после точки может быть обычным идентификатором
-                    // (cons.print) либо строкой-командой ("команда").
                     let member = match &self.current().kind {
                         TokenKind::Identifier(name) => {
                             let n = name.clone();
@@ -735,7 +699,7 @@ impl Parser {
                             n
                         }
                         _ => panic!(
-                            "Ожидался идентификатор после '.', найден {:?}",
+                            "Expected an identifier after '.', found {:?}",
                             self.current().kind
                         ),
                     };
@@ -769,7 +733,6 @@ impl Parser {
                     }
                 }
 
-                // `выражение#тип` — привести значение к другому типу (без точки!)
                 TokenKind::Hash => {
                     self.advance();
                     let target_type = self.parse_type();
@@ -831,7 +794,6 @@ impl Parser {
                 Expression::Variable(name)
             }
 
-            // Имя функции ($f), использованное как ссылка/вызов
             TokenKind::Function(name) => {
                 let name = name.clone();
                 self.advance();
@@ -854,7 +816,7 @@ impl Parser {
                     while self.check(&TokenKind::Comma) {
                         self.advance();
                         if self.check(&TokenKind::CloseBracket) {
-                            break; // висячая запятая: [1,2,]
+                            break;
                         }
                         items.push(self.parse_expression());
                     }
@@ -866,7 +828,7 @@ impl Parser {
 
             TokenKind::OpenBrace => self.parse_json_literal(),
 
-            _ => panic!("Неожиданный токен в выражении: {:?}", self.current().kind),
+            _ => panic!("Unexpected token in expression: {:?}", self.current().kind),
         }
     }
 }

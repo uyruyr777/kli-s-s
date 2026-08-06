@@ -5,8 +5,6 @@ use crate::runtime::Runtime;
 use crate::scope::Scope;
 use crate::value::{JsonField, JsonObject, Value, ValueType};
 
-/// Результат выполнения одного оператора: позволяет return/break/continue
-/// "пробиться" наверх сквозь вложенные блоки (if/while/for).
 enum Flow {
     Normal,
     Return(Value),
@@ -17,10 +15,7 @@ enum Flow {
 pub struct Interpreter {
     runtime: Runtime,
     scope: Scope,
-    /// Все именованные функции программы:
-    /// `$f` хранится под ключом "f", вложенная `$px` внутри `$v` — под "v.px".
     functions: HashMap<String, FunctionNode>,
-    /// Обработчики событий `@namespace.event(param){...}`, ключ — (namespace, event).
     event_handlers: HashMap<(String, String), EventHandlerNode>,
 }
 
@@ -34,18 +29,6 @@ impl Interpreter {
         }
     }
 
-    /// Запустить программу:
-    /// 1. глобальные переменные и функции регистрируются;
-    /// 2. `@start` выполняется один раз — прямо в базовой области видимости,
-    ///    поэтому переменные, объявленные внутри `@start`, ведут себя как
-    ///    глобальные и видны в `@update` и обработчиках событий;
-    /// 3. если есть `@update`, обработчик события или хотя бы одна активная
-    ///    tick-функция (например, открытое окно) — запускается цикл: на
-    ///    каждой итерации выполняются tick-функции (прокачка окон и т. п.),
-    ///    опрашиваются источники событий, для которых есть обработчик, и
-    ///    выполняется `@update`. Цикл прерывается вызовом `exets`
-    ///    (Statement::Exit) или когда все tick-функции вернут false и нет
-    ///    `@update`.
     pub fn run(&mut self, program: &Program) {
         for var in &program.globals {
             self.declare_variable(var);
@@ -66,9 +49,6 @@ impl Interpreter {
             self.exec_statements(&start.body);
         }
 
-        // Опрашиваем только те источники событий, на которые в скрипте
-        // реально есть обработчик — так ядро само решает, что умеет
-        // генерировать, а язык не завязан на конкретные имена вроде "cons".
         let active_sources: Vec<(String, String, crate::runtime::EventSourceFn)> = self
             .runtime
             .event_sources
@@ -82,13 +62,10 @@ impl Interpreter {
         let tick_functions = self.runtime.tick_functions.clone();
 
         if program.update.is_none() && active_sources.is_empty() && tick_functions.is_empty() {
-            return; // разовый скрипт без цикла обновления/событий/окон
+            return;
         }
 
         loop {
-            // Безусловные тики (например, прокачка открытых окон).
-            // Если ВСЕ они вернули false (окон нет и т. п.) и нет @update —
-            // завершаем цикл, иначе программа "висела" бы вечно без причины.
             let mut any_alive = false;
             for tick in &tick_functions {
                 if tick() {
@@ -112,10 +89,6 @@ impl Interpreter {
         }
     }
 
-    /// Вызвать обработчик `@namespace.event(param){...}`, если он объявлен.
-    /// Параметр (если есть в объявлении) получает переданное значение;
-    /// присваивания уже существующим внешним переменным (как `msg = msgg;`)
-    /// находят их через `Scope::set`, которая ищет во внешних областях.
     fn dispatch_event(&mut self, namespace: &str, event: &str, arg: Value) {
         let key = (namespace.to_string(), event.to_string());
         let handler = match self.event_handlers.get(&key).cloned() {
@@ -131,8 +104,6 @@ impl Interpreter {
         self.scope.pop();
     }
 
-    /// Регистрирует функцию и рекурсивно все вложенные `$px(){}` внутри неё
-    /// под составным именем "родитель.имя" (для вызова вида `$v.px()`).
     fn register_function(&mut self, function: &FunctionNode, parent: Option<&str>) {
         let key = match parent {
             Some(parent_name) => format!("{}.{}", parent_name, function.name),
@@ -154,9 +125,6 @@ impl Interpreter {
             None => Value::Null,
         };
 
-        // Приводим начальное значение к объявленному типу: `#ncti big 0;` —
-        // 0 упаковывается в ncti (один лимб), а без начального значения
-        // получаем ncti-ноль/float-ноль по умолчанию.
         let value = if var.is_array {
             raw
         } else {
@@ -169,10 +137,6 @@ impl Interpreter {
 
         self.scope.declare(&var.name, value);
     }
-
-    // ==========================================
-    // Операторы
-    // ==========================================
 
     fn exec_block(&mut self, statements: &[Statement]) -> Flow {
         self.scope.push();
@@ -198,7 +162,6 @@ impl Interpreter {
                 Flow::Normal
             }
 
-            // Уже зарегистрирована заранее в register_function — здесь делать нечего
             Statement::FunctionDef(_) => Flow::Normal,
 
             Statement::Assignment { target, value } => {
@@ -223,11 +186,8 @@ impl Interpreter {
             Statement::Break => Flow::Break,
             Statement::Continue => Flow::Continue,
 
-            // Полный выход из скрипта — немедленно завершает процесс.
             Statement::Exit => std::process::exit(0),
 
-            // `имя[.поле].#тип = значение;` — смена типа (в отличие от обычного
-            // присваивания, проверка совместимости типов не выполняется).
             Statement::Retype { base, field, new_type, value } => {
                 let new_value = cast_value(self.eval(value), new_type);
 
@@ -242,13 +202,13 @@ impl Interpreter {
                                 obj.fields.insert(
                                     field_name.clone(),
                                     JsonField {
-                                        declared_type: type_node_to_value_type(new_type),
+                                        declared_type: Some(type_node_to_value_type(new_type)),
                                         value: new_value,
                                     },
                                 );
                                 self.scope.set(base, Value::Json(obj));
                             }
-                            _ => panic!("'{}' не является json-объектом", base),
+                            _ => panic!("'{}' is not a json object", base),
                         }
                     }
                 }
@@ -256,23 +216,24 @@ impl Interpreter {
                 Flow::Normal
             }
 
-            // `имя.#new = тип#"ключ":значение;` — добавить новое поле в json-объект
             Statement::AddJsonField { base, field_type, key, value } => {
-                let new_value = cast_value(self.eval(value), field_type);
+                let raw = self.eval(value);
+                let (declared_type, new_value) = match field_type {
+                    Some(t) => (Some(type_node_to_value_type(t)), cast_value(raw, t)),
+                    None => (None, raw),
+                };
+
                 let current = self.scope.get(base).unwrap_or(Value::Null);
 
                 match current {
                     Value::Json(mut obj) => {
                         obj.fields.insert(
                             key.clone(),
-                            JsonField {
-                                declared_type: type_node_to_value_type(field_type),
-                                value: new_value,
-                            },
+                            JsonField { declared_type, value: new_value },
                         );
                         self.scope.set(base, Value::Json(obj));
                     }
-                    _ => panic!("'{}' не является json-объектом", base),
+                    _ => panic!("'{}' is not a json object", base),
                 }
 
                 Flow::Normal
@@ -338,13 +299,11 @@ impl Interpreter {
         match target {
             Expression::Variable(name) => self.scope.set(name, value),
 
-            // `gg.number = "str";` — обычное присваивание полю json-объекта.
-            // В отличие от `.#тип = значение`, тип поля здесь должен совпадать.
             Expression::Member { object, member } => {
                 let base = match object.as_ref() {
                     Expression::Variable(name) => name.clone(),
                     _ => panic!(
-                        "Присваивание полю поддерживается только напрямую у переменной (obj.field = ...)"
+                        "Field assignment is only supported directly on a variable (obj.field = ...)"
                     ),
                 };
 
@@ -352,15 +311,17 @@ impl Interpreter {
                 match current {
                     Value::Json(mut obj) => {
                         let existing = obj.fields.get(member).cloned().unwrap_or_else(|| {
-                            panic!("У объекта '{}' нет поля '{}'", base, member)
+                            panic!("Object '{}' has no field '{}'", base, member)
                         });
 
-                        if value.get_type() != existing.declared_type {
-                            panic!(
-                                "Нельзя присвоить значение типа {:?} полю '{}' (тип {:?}). \
-                                 Используйте {}.{}.#тип = значение, чтобы сменить тип поля.",
-                                value.get_type(), member, existing.declared_type, base, member
-                            );
+                        if let Some(declared) = &existing.declared_type {
+                            if value.get_type() != *declared {
+                                panic!(
+                                    "Cannot assign a value of type {:?} to field '{}' (declared type {:?}). \
+                                     Use {}.{}.#type = value to change its type.",
+                                    value.get_type(), member, declared, base, member
+                                );
+                            }
                         }
 
                         obj.fields.insert(
@@ -369,17 +330,14 @@ impl Interpreter {
                         );
                         self.scope.set(&base, Value::Json(obj));
                     }
-                    _ => panic!("'{}' не является json-объектом", base),
+                    _ => panic!("'{}' is not a json object", base),
                 }
             }
 
-            _ => panic!("Присваивание поддерживается только для простых переменных и полей json-объектов"),
+            _ => panic!("Assignment is only supported for plain variables and json object fields"),
         }
     }
 
-    // ==========================================
-    // Выражения
-    // ==========================================
 
     fn eval(&mut self, expr: &Expression) -> Value {
         match expr {
@@ -399,7 +357,7 @@ impl Interpreter {
                 let index = self.eval(index).as_int();
                 match array {
                     Value::Array(items) => items.get(index as usize).cloned().unwrap_or(Value::Null),
-                    _ => panic!("Индексирование доступно только для массивов"),
+                    _ => panic!("Indexing is only supported for arrays"),
                 }
             }
 
@@ -411,7 +369,7 @@ impl Interpreter {
                         .get(member)
                         .map(|f| f.value.clone())
                         .unwrap_or(Value::Null),
-                    _ => panic!("У значения нет поля '{}'", member),
+                    _ => panic!("This value has no field '{}'", member),
                 }
             }
 
@@ -422,7 +380,7 @@ impl Interpreter {
                     UnaryOperator::Truthy => Value::Bool(value.as_bool()),
                     UnaryOperator::Negative => match value {
                         Value::Float(v) => Value::Float(-v),
-                        Value::Ncti(_) => panic!("Отрицательные ncti-числа пока не поддерживаются"),
+                        Value::Ncti(_) => panic!("Negative ncti numbers are not supported yet"),
                         _ => Value::Int(-value.as_int()),
                     },
                 }
@@ -438,11 +396,11 @@ impl Interpreter {
                 let mut fields = HashMap::new();
                 for (field_type, key, value_expr) in entries {
                     let raw = self.eval(value_expr);
-                    let value = cast_value(raw, field_type);
-                    fields.insert(
-                        key.clone(),
-                        JsonField { declared_type: type_node_to_value_type(field_type), value },
-                    );
+                    let (declared_type, value) = match field_type {
+                        Some(t) => (Some(type_node_to_value_type(t)), cast_value(raw, t)),
+                        None => (None, raw),
+                    };
+                    fields.insert(key.clone(), JsonField { declared_type, value });
                 }
                 Value::Json(JsonObject { fields })
             }
@@ -490,7 +448,7 @@ impl Interpreter {
             }
             BinaryOperator::Divide => {
                 if is_ncti {
-                    panic!("Деление ncti пока не поддерживается")
+                    panic!("Division for ncti is not supported yet")
                 } else if is_float {
                     Value::Float(left.as_float() / right.as_float())
                 } else {
@@ -538,25 +496,22 @@ impl Interpreter {
     fn eval_call(&mut self, object: Option<&Expression>, function: &str, arguments: &[Expression]) -> Value {
         let args: Vec<Value> = arguments.iter().map(|arg| self.eval(arg)).collect();
 
-        // `namespace.function(args)` — ядро/плагин, зарегистрированный в Runtime
         if let Some(Expression::Variable(namespace)) = object {
             if self.runtime.namespaces.contains_key(namespace) {
                 return self.runtime.call_native(namespace, function, args);
             }
 
-            // `$v.px()` — вызов вложенной функции по составному имени "v.px"
             let key = format!("{}.{}", namespace, function);
             if let Some(target) = self.functions.get(&key).cloned() {
                 return self.call_user_function(&target);
             }
         }
 
-        // Обычный вызов пользовательской функции `$f()`
         if let Some(target) = self.functions.get(function).cloned() {
             return self.call_user_function(&target);
         }
 
-        panic!("Функция '{}' не найдена", function);
+        panic!("Function '{}' not found", function);
     }
 
     fn call_user_function(&mut self, function: &FunctionNode) -> Value {
@@ -571,17 +526,13 @@ impl Interpreter {
     }
 }
 
-/// Приводит значение к другому типу — используется и для `выражение#тип`,
-/// и для `.#тип = значение`, и при построении json-литералов/добавлении полей.
-/// Строки при преобразовании в int/float реально парсятся (`"11"#int` -> 11),
-/// а не просто отбрасываются, как при обычном `as_int`/`as_float`.
 fn cast_value(value: Value, target: &TypeNode) -> Value {
     match target {
         TypeNode::Int => match value {
             Value::String(s) => Value::Int(
                 s.trim()
                     .parse()
-                    .unwrap_or_else(|_| panic!("Не удалось преобразовать \"{}\" в int", s)),
+                    .unwrap_or_else(|_| panic!("Could not convert \"{}\" to int", s)),
             ),
             other => Value::Int(other.as_int()),
         },
@@ -589,14 +540,13 @@ fn cast_value(value: Value, target: &TypeNode) -> Value {
             Value::String(s) => Value::Float(
                 s.trim()
                     .parse()
-                    .unwrap_or_else(|_| panic!("Не удалось преобразовать \"{}\" в float", s)),
+                    .unwrap_or_else(|_| panic!("Could not convert \"{}\" to float", s)),
             ),
             other => Value::Float(other.as_float()),
         },
         TypeNode::Bool => Value::Bool(value.as_bool()),
         TypeNode::String => Value::String(value.as_string()),
         TypeNode::Ncti => Value::Ncti(value.as_ncti()),
-        // json/классы как цель приведения пока не поддержаны — возвращаем как есть
         TypeNode::Json | TypeNode::Custom(_) => value,
     }
 }

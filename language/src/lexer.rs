@@ -1,27 +1,22 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-/// Все возможные токены языка
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // ===== Литералы =====
+
     Number(i64),
     Float(f64),
     String(String),
     Bool(bool),
 
-    // ===== Идентификаторы и именованные конструкции =====
     Identifier(String),
-    Function(String), // $name
-    Class(String),     // &Name
+    Function(String),
+    Class(String),
 
-    // ===== Ключевые слова =====
     Keyword(Keyword),
 
-    // ===== Типы =====
     Type(DataType),
 
-    // ===== Разделители =====
     Colon,
     Comma,
     Dot,
@@ -33,7 +28,6 @@ pub enum TokenKind {
     OpenBracket,
     CloseBracket,
 
-    // ===== Операторы =====
     Assign,
 
     Plus,
@@ -53,21 +47,18 @@ pub enum TokenKind {
     NotGreaterEqual,
     NotLessEqual,
 
-    // Логика
-    Pipe,      // | — "и" (по спецификации языка)
-    PipePipe,  // || — "или"
+    Pipe,
+    PipePipe,
 
-    // ===== Спецсимволы =====
-    Hash, // #
-    At,   // @
+    Hash,
+    At,
 
-    Question,    // ?
-    Exclamation, // !
+    Question,
+    Exclamation,
 
     EOF,
 }
 
-/// Один токен
 #[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenKind,
@@ -77,16 +68,15 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Keyword {
-    Import,   // i
-    Plugin,   // a
+    Import,
+    Plugin,
     Start,
     Update,
-    While,    // w
-    For,      // f
+    While,
+    For,
     Return,
     Break,
     Continue,
-    /// `exets` — выход из всего скрипта
     Exit,
 }
 
@@ -96,13 +86,10 @@ pub enum DataType {
     Float,
     Bool,
     String,
-    /// "Число, близкое к бесконечности" — большое число из цепочки лимбов
     Ncti,
-    /// Объект с типизированными полями: `#json obj {int#"n":1};`
     Json,
 }
 
-/// Лексер
 pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
     current: Option<char>,
@@ -111,9 +98,7 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    /// Создать новый лексер.
-    /// Строка "утекает" в статическую память, чтобы не бороться с
-    /// заимствованиями внутри самого Lexer (упрощение для учебного проекта).
+
     pub fn new(source: String) -> Lexer<'static> {
         let source: &'static str = Box::leak(source.into_boxed_str());
         let mut chars = source.chars().peekable();
@@ -127,7 +112,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Перейти к следующему символу
     fn advance(&mut self) {
         if let Some(c) = self.current {
             if c == '\n' {
@@ -141,12 +125,10 @@ impl<'a> Lexer<'a> {
         self.current = self.input.next();
     }
 
-    /// Посмотреть следующий символ
     fn peek(&mut self) -> Option<char> {
         self.input.peek().copied()
     }
 
-    /// Пропустить пробелы и переносы строк
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.current {
             if c.is_whitespace() {
@@ -157,7 +139,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Пропустить комментарий //
     fn skip_comment(&mut self) {
         while let Some(c) = self.current {
             if c == '\n' {
@@ -167,7 +148,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Прочитать число (целое или дробное)
     fn read_number(&mut self) -> TokenKind {
         let mut text = String::new();
 
@@ -180,9 +160,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Дробная часть распознаётся, только если после '.' сразу идёт цифра —
-        // иначе это точка обращения к полю/методу (например, `3.print()` не бывает,
-        // но так мы не путаем `.` дробей с `.` вызовов на всякий случай).
         if self.current == Some('.') {
             if let Some(next) = self.peek() {
                 if next.is_ascii_digit() {
@@ -206,9 +183,8 @@ impl<'a> Lexer<'a> {
         TokenKind::Number(text.parse().unwrap())
     }
 
-    /// Прочитать строку в кавычках
     fn read_string(&mut self) -> TokenKind {
-        self.advance(); // пропускаем открывающую "
+        self.advance();
 
         let mut text = String::new();
 
@@ -220,12 +196,11 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
-        self.advance(); // пропускаем закрывающую "
+        self.advance();
 
         TokenKind::String(text)
     }
 
-    /// Прочитать обычный идентификатор
     fn read_identifier(&mut self) -> String {
         let mut id = String::new();
 
@@ -241,21 +216,18 @@ impl<'a> Lexer<'a> {
         id
     }
 
-    /// Прочитать имя функции ($move)
     fn read_function(&mut self) -> TokenKind {
         self.advance(); // пропускаем $
         let name = self.read_identifier();
         TokenKind::Function(name)
     }
 
-    /// Прочитать имя класса (&Player)
     fn read_class(&mut self) -> TokenKind {
         self.advance(); // пропускаем &
         let name = self.read_identifier();
         TokenKind::Class(name)
     }
 
-    /// Прочитать оператор или специальный символ
     fn read_operator(&mut self) -> Option<TokenKind> {
         let ch = self.current?;
 
@@ -356,13 +328,13 @@ impl<'a> Lexer<'a> {
             "return" => TokenKind::Keyword(Keyword::Return),
             "break" => TokenKind::Keyword(Keyword::Break),
             "continue" => TokenKind::Keyword(Keyword::Continue),
-            "exetr" => TokenKind::Keyword(Keyword::Break), // выход из цикла
-            "exets" => TokenKind::Keyword(Keyword::Exit),  // выход из скрипта
+            "exetr" => TokenKind::Keyword(Keyword::Break),
+            "exets" => TokenKind::Keyword(Keyword::Exit),
             "int" => TokenKind::Type(DataType::Int),
             "float" => TokenKind::Type(DataType::Float),
             "bool" => TokenKind::Type(DataType::Bool),
             "string" => TokenKind::Type(DataType::String),
-            "str" => TokenKind::Type(DataType::String), // короткий алиас для string
+            "str" => TokenKind::Type(DataType::String),
             "ncti" => TokenKind::Type(DataType::Ncti),
             "json" => TokenKind::Type(DataType::Json),
             "true" => TokenKind::Bool(true),
@@ -371,7 +343,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Разобрать весь исходный код в список токенов
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
 
@@ -386,7 +357,6 @@ impl<'a> Lexer<'a> {
             let line = self.line;
             let column = self.column;
 
-            // Комментарии //
             if current == '/' && self.peek() == Some('/') {
                 self.advance();
                 self.advance();
@@ -418,20 +388,18 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
-            // Слова / ключевые слова
             if current.is_ascii_alphabetic() || current == '_' {
                 let text = self.read_identifier();
                 tokens.push(Token { kind: self.keyword_or_identifier(text), line, column });
                 continue;
             }
 
-            // Символы и операторы
             if let Some(kind) = self.read_operator() {
                 tokens.push(Token { kind, line, column });
                 continue;
             }
 
-            panic!("Неизвестный символ '{}' ({}:{})", current, line, column);
+            panic!("Unknown character '{}' ({}:{})", current, line, column);
         }
 
         tokens.push(Token {

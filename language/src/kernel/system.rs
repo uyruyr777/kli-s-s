@@ -25,12 +25,8 @@ pub fn load(runtime: &mut Runtime) {
     runtime.namespace("rand")
        .function("rdom", rand_rdom);
 
-    // Прокачка окон (обработка их системных событий, перерисовка) на
-    // каждой итерации цикла интерпретатора — независимо от @update/событий.
     runtime.register_tick(pump_windows);
 
-    // Событие `@cons.imput(param){...}` — интерпретатор опрашивает эту
-    // функцию на каждой итерации, но только если в скрипте есть такой обработчик.
     runtime.event_source("cons", "imput", cons_poll_input);
 
 }
@@ -131,15 +127,12 @@ fn file_write(args: Vec<Value>) -> Value {
 
     std::fs::write(path, text)
 
-        .expect("Ошибка записи файла");
+        .expect("Failed to write file");
 
     Value::Null
 
 }
 
-/// Простой генератор псевдослучайных чисел (xorshift64*), без внешних
-/// зависимостей. Затравка — системное время + счётчик вызовов, чтобы
-/// не повторяться при вызовах в один и тот же наносекундный момент.
 fn next_random_u64() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -158,7 +151,6 @@ fn next_random_u64() -> u64 {
     x
 }
 
-/// `rand.rdom(min, max)` — случайное целое число в диапазоне [min, max] включительно.
 fn rand_rdom(args: Vec<Value>) -> Value {
 
     if args.len() != 2 {
@@ -169,7 +161,7 @@ fn rand_rdom(args: Vec<Value>) -> Value {
     let max = args[1].as_int();
 
     if max < min {
-        panic!("rand.rdom: max должен быть не меньше min");
+        panic!("rand.rdom: max must not be less than min");
     }
 
     let range = (max - min + 1) as u64;
@@ -179,14 +171,12 @@ fn rand_rdom(args: Vec<Value>) -> Value {
 
 }
 
-/// Опрашивается интерпретатором: если пользователь ввёл строку в консоль —
-/// возвращает её как значение события; если поток ввода закрыт (EOF) — None.
 fn cons_poll_input() -> Option<Value> {
 
     let mut line = String::new();
 
     match std::io::stdin().read_line(&mut line) {
-        Ok(0) => None, // EOF — поток ввода закрыт
+        Ok(0) => None,
         Ok(_) => {
             let line = line.trim_end_matches(['\n', '\r']).to_string();
             Some(Value::String(line))
@@ -196,11 +186,6 @@ fn cons_poll_input() -> Option<Value> {
 
 }
 
-/// Настоящее окно (minifb). Оборачиваем в newtype и вручную помечаем Send:
-/// minifb::Window не Send по умолчанию (хранит платформенные указатели),
-/// но в этом проекте вообще нет многопоточности — интерпретатор целиком
-/// однопоточный, и окна создаются/используются только из него. Если в
-/// будущем в проект добавят потоки — это допущение нужно будет пересмотреть.
 struct WindowHandle {
     window: minifb::Window,
     width: usize,
@@ -215,10 +200,6 @@ fn windows() -> &'static Mutex<HashMap<i64, WindowHandle>> {
     WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// `window.open(xh, yh, x, y, name, sysid)` — открывает настоящее окно
-/// (X11 на Linux, нативное окно на Windows). xh/yh: ширина/высота,
-/// x/y: позиция на экране, name: заголовок, sysid: id окна (задаётся скриптом).
-/// Возвращает true при успехе, паникует, если sysid уже занят.
 fn window_open(args: Vec<Value>) -> Value {
 
     if args.len() != 6 {
@@ -235,7 +216,7 @@ fn window_open(args: Vec<Value>) -> Value {
     let mut registry = windows().lock().unwrap();
 
     if registry.contains_key(&sysid) {
-        panic!("window.open: окно с sysid={} уже существует", sysid);
+        panic!("window.open: a window with sysid={} already exists", sysid);
     }
 
     let mut window = minifb::Window::new(
@@ -243,19 +224,17 @@ fn window_open(args: Vec<Value>) -> Value {
         width,
         height,
         minifb::WindowOptions::default(),
-    ).unwrap_or_else(|err| panic!("window.open: не удалось открыть окно: {}", err));
+    ).unwrap_or_else(|err| panic!("window.open: failed to open window: {}", err));
 
     window.set_position(x as isize, y as isize);
 
-    // Заливаем окно нейтральным серым фоном — рисование конкретных
-    // пикселей/фигур из скрипта пока не реализовано, это следующий шаг.
     let buffer = vec![0x00303030u32; width * height];
     window
         .update_with_buffer(&buffer, width, height)
-        .unwrap_or_else(|err| panic!("window.open: ошибка отрисовки: {}", err));
+        .unwrap_or_else(|err| panic!("window.open: failed to draw: {}", err));
 
     println!(
-        "[window] открыто окно #{} \"{}\" {}x{} в позиции ({}, {})",
+        "[window] opened window #{} \"{}\" {}x{} at position ({}, {})",
         sysid, name, width, height, x, y
     );
 
@@ -265,8 +244,6 @@ fn window_open(args: Vec<Value>) -> Value {
 
 }
 
-/// `window.clos(sysid)` — закрыть окно по id. Возвращает true, если окно
-/// существовало и было закрыто, иначе false.
 fn window_close(args: Vec<Value>) -> Value {
 
     if args.len() != 1 {
@@ -277,20 +254,15 @@ fn window_close(args: Vec<Value>) -> Value {
     let existed = windows().lock().unwrap().remove(&sysid).is_some();
 
     if existed {
-        println!("[window] закрыто окно #{}", sysid);
+        println!("[window] closed window #{}", sysid);
     } else {
-        println!("[window] окно #{} не найдено", sysid);
+        println!("[window] window #{} not found", sysid);
     }
 
     Value::Bool(existed)
 
 }
 
-/// Вызывается интерпретатором каждую итерацию цикла: перерисовывает и
-/// обрабатывает системные события всех открытых окон. Окна, закрытые
-/// пользователем (крестик/Escape), удаляются из реестра автоматически.
-/// Возвращает true, если после прокачки осталось хотя бы одно окно —
-/// это не даёт программе завершиться, пока окно ещё открыто.
 fn pump_windows() -> bool {
 
     let mut registry = windows().lock().unwrap();

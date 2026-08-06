@@ -1,15 +1,9 @@
 use std::fmt;
 
-/// "Число, близкое к бесконечности" — большое число, состоящее из цепочки
-/// "лимбов" (внутренних ячеек). Каждый лимб хранит значение в диапазоне
-/// [0, LIMB_BASE). Когда при сложении/умножении лимб переполняется —
-/// избыток (перенос) добавляется в следующий лимб; если следующего нет,
-/// он создаётся. Именно так ncti растёт "сам в себе".
 const LIMB_BASE: i64 = 1_000_000_000_000_000_000; // 10^18
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ncti {
-    /// Лимбы от младшего к старшему, каждый в диапазоне [0, LIMB_BASE)
     pub limbs: Vec<i64>,
 }
 
@@ -31,7 +25,6 @@ impl Ncti {
         Self { limbs }
     }
 
-    /// Убрать лишние старшие нулевые лимбы (кроме единственного, если число — 0)
     pub fn normalize(mut self) -> Self {
         while self.limbs.len() > 1 && *self.limbs.last().unwrap() == 0 {
             self.limbs.pop();
@@ -39,7 +32,6 @@ impl Ncti {
         self
     }
 
-    /// Если число помещается в один лимб — вернуть его как i64
     pub fn to_i64(&self) -> Option<i64> {
         let n = self.clone().normalize();
         if n.limbs.len() == 1 {
@@ -64,8 +56,6 @@ impl Ncti {
         result
     }
 
-    /// Сложение с переносом: когда лимб доходит до предела (LIMB_BASE),
-    /// избыток добавляется в следующий (создаётся при необходимости).
     pub fn add(&self, other: &Ncti) -> Ncti {
         let mut result = Vec::new();
         let mut carry: i64 = 0;
@@ -87,8 +77,6 @@ impl Ncti {
         Ncti { limbs: result }.normalize()
     }
 
-    /// Вычитание (с заимствованием). Предполагается self >= other —
-    /// отрицательные ncti пока не поддерживаются.
     pub fn sub(&self, other: &Ncti) -> Ncti {
         let mut result = Vec::new();
         let mut borrow: i64 = 0;
@@ -150,23 +138,17 @@ impl Ncti {
     }
 }
 
-/// Одно типизированное поле json-объекта: хранит и объявленный тип, и
-/// текущее значение. Тип нужен, чтобы решать, можно ли присвоить полю
-/// новое значение обычным `=` (тип должен совпасть) или для этого нужен
-/// явный `.#тип = значение` (смена типа).
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsonField {
-    pub declared_type: ValueType,
+    pub declared_type: Option<ValueType>,
     pub value: Value,
 }
 
-/// `#json obj {int#"n":1, ...}` — набор типизированных полей.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsonObject {
     pub fields: std::collections::HashMap<String, JsonField>,
 }
 
-/// Типы значений языка
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
@@ -174,13 +156,11 @@ pub enum Value {
     Bool(bool),
     String(String),
     Array(Vec<Value>),
-    /// "Число, близкое к бесконечности" — см. Ncti выше
     Ncti(Ncti),
     Json(JsonObject),
     Null,
 }
 
-/// Возможные типы данных
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     Int,
@@ -194,7 +174,6 @@ pub enum ValueType {
 }
 
 impl Value {
-    /// Получить тип значения
     pub fn get_type(&self) -> ValueType {
         match self {
             Value::Int(_) => ValueType::Int,
@@ -208,7 +187,6 @@ impl Value {
         }
     }
 
-    /// Преобразовать в bool
     pub fn as_bool(&self) -> bool {
         match self {
             Value::Bool(v) => *v,
@@ -225,7 +203,6 @@ impl Value {
         }
     }
 
-    /// Преобразовать в int (для ncti — только если помещается в один лимб)
     pub fn as_int(&self) -> i64 {
         match self {
             Value::Int(v) => *v,
@@ -233,34 +210,31 @@ impl Value {
             Value::Bool(v) => if *v { 1 } else { 0 },
             Value::Ncti(n) => n
                 .to_i64()
-                .unwrap_or_else(|| panic!("ncti-число слишком велико для int")),
-            _ => panic!("Нельзя преобразовать в int"),
+                .unwrap_or_else(|| panic!("ncti value is too large to fit in an int")),
+            _ => panic!("Cannot convert this value to int"),
         }
     }
 
-    /// Преобразовать в float
     pub fn as_float(&self) -> f64 {
         match self {
             Value::Float(v) => *v,
             Value::Int(v) => *v as f64,
             Value::Bool(v) => if *v { 1.0 } else { 0.0 },
             Value::Null => 0.0,
-            _ => panic!("Нельзя преобразовать в float"),
+            _ => panic!("Cannot convert this value to float"),
         }
     }
 
-    /// Преобразовать в ncti (обычное число автоматически "упаковывается" в один лимб)
     pub fn as_ncti(&self) -> Ncti {
         match self {
             Value::Ncti(n) => n.clone(),
             Value::Int(v) => Ncti::from_i64(*v),
             Value::Bool(v) => Ncti::from_i64(if *v { 1 } else { 0 }),
             Value::Null => Ncti::zero(),
-            _ => panic!("Нельзя преобразовать в ncti"),
+            _ => panic!("Cannot convert this value to ncti"),
         }
     }
 
-    /// Преобразовать в String
     pub fn as_string(&self) -> String {
         match self {
             Value::String(v) => v.clone(),
