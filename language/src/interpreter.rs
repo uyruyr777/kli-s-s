@@ -12,6 +12,11 @@ enum Flow {
     Continue,
 }
 
+enum PathSegment {
+    Field(String),
+    Index(i64),
+}
+
 pub struct Interpreter {
     runtime: Runtime,
     scope: Scope,
@@ -41,7 +46,7 @@ impl Interpreter {
         for handler in &program.event_handlers {
             self.event_handlers.insert(
                 (handler.namespace.clone(), handler.event.clone()),
-                handler.clone(),
+                                       handler.clone(),
             );
         }
 
@@ -50,14 +55,14 @@ impl Interpreter {
         }
 
         let active_sources: Vec<(String, String, crate::runtime::EventSourceFn)> = self
-            .runtime
-            .event_sources
-            .iter()
-            .filter(|(namespace, event, _)| {
-                self.event_handlers.contains_key(&(namespace.clone(), event.clone()))
-            })
-            .cloned()
-            .collect();
+        .runtime
+        .event_sources
+        .iter()
+        .filter(|(namespace, event, _)| {
+            self.event_handlers.contains_key(&(namespace.clone(), event.clone()))
+        })
+        .cloned()
+        .collect();
 
         let tick_functions = self.runtime.tick_functions.clone();
 
@@ -201,10 +206,10 @@ impl Interpreter {
                             Value::Json(mut obj) => {
                                 obj.fields.insert(
                                     field_name.clone(),
-                                    JsonField {
-                                        declared_type: Some(type_node_to_value_type(new_type)),
-                                        value: new_value,
-                                    },
+                                                  JsonField {
+                                                      declared_type: Some(type_node_to_value_type(new_type)),
+                                                  value: new_value,
+                                                  },
                                 );
                                 self.scope.set(base, Value::Json(obj));
                             }
@@ -229,7 +234,7 @@ impl Interpreter {
                     Value::Json(mut obj) => {
                         obj.fields.insert(
                             key.clone(),
-                            JsonField { declared_type, value: new_value },
+                                          JsonField { declared_type, value: new_value },
                         );
                         self.scope.set(base, Value::Json(obj));
                     }
@@ -295,46 +300,102 @@ impl Interpreter {
         }
     }
 
-    fn assign(&mut self, target: &Expression, value: Value) {
-        match target {
-            Expression::Variable(name) => self.scope.set(name, value),
+    fn resolve_path(&mut self, expr: &Expression) -> (String, Vec<PathSegment>) {
+        match expr {
+            Expression::Variable(name) => (name.clone(), Vec::new()),
 
             Expression::Member { object, member } => {
-                let base = match object.as_ref() {
-                    Expression::Variable(name) => name.clone(),
-                    _ => panic!(
-                        "Field assignment is only supported directly on a variable (obj.field = ...)"
-                    ),
-                };
+                let (base, mut path) = self.resolve_path(object);
+                path.push(PathSegment::Field(member.clone()));
+                (base, path)
+            }
 
-                let current = self.scope.get(&base).unwrap_or(Value::Null);
+            Expression::ArrayIndex { array, index } => {
+                let idx = self.eval(index).as_int();
+                let (base, mut path) = self.resolve_path(array);
+                path.push(PathSegment::Index(idx));
+                (base, path)
+            }
+
+            _ => panic!(
+                "Assignment target must be a variable, field access or array index (got {:?})",
+                        expr
+            ),
+        }
+    }
+
+    fn assign(&mut self, target: &Expression, value: Value) {
+        let (base, path) = self.resolve_path(target);
+
+        if path.is_empty() {
+            self.scope.set(&base, value);
+            return;
+        }
+
+        let mut root = self.scope.get(&base).unwrap_or(Value::Null);
+        Self::set_path(&mut root, &path, value, &base);
+        self.scope.set(&base, root);
+    }
+
+    fn set_path(current: &mut Value, path: &[PathSegment], value: Value, ctx_name: &str) {
+        match &path[0] {
+            PathSegment::Field(name) => {
+                if matches!(current, Value::Null) {
+                    *current = Value::Json(JsonObject { fields: HashMap::new() });
+                }
+
                 match current {
-                    Value::Json(mut obj) => {
-                        let existing = obj.fields.get(member).cloned().unwrap_or_else(|| {
-                            panic!("Object '{}' has no field '{}'", base, member)
-                        });
+                    Value::Json(obj) => {
+                        if path.len() == 1 {
+                            let declared = obj.fields.get(name).and_then(|f| f.declared_type.clone());
 
-                        if let Some(declared) = &existing.declared_type {
-                            if value.get_type() != *declared {
-                                panic!(
-                                    "Cannot assign a value of type {:?} to field '{}' (declared type {:?}). \
-                                     Use {}.{}.#type = value to change its type.",
-                                    value.get_type(), member, declared, base, member
-                                );
+                            if let Some(dt) = &declared {
+                                if value.get_type() != *dt {
+                                    panic!(
+                                        "Cannot assign a value of type {:?} to field '{}' (declared type {:?}). \
+Use .{}.#type = value to change its type.",
+value.get_type(), name, dt, name
+                                    );
+                                }
                             }
-                        }
 
-                        obj.fields.insert(
-                            member.clone(),
-                            JsonField { declared_type: existing.declared_type, value },
-                        );
-                        self.scope.set(&base, Value::Json(obj));
+                            obj.fields.insert(name.clone(), JsonField { declared_type: declared, value });
+                        } else {
+                            let entry = obj
+                            .fields
+                            .entry(name.clone())
+                            .or_insert_with(|| JsonField { declared_type: None, value: Value::Null });
+                            Self::set_path(&mut entry.value, &path[1..], value, ctx_name);
+                        }
                     }
-                    _ => panic!("'{}' is not a json object", base),
+                    _ => panic!("'{}' is not a json object", ctx_name),
                 }
             }
 
-            _ => panic!("Assignment is only supported for plain variables and json object fields"),
+            PathSegment::Index(idx) => {
+                if matches!(current, Value::Null) {
+                    *current = Value::Array(Vec::new());
+                }
+
+                match current {
+                    Value::Array(items) => {
+                        if *idx < 0 {
+                            panic!("Array index cannot be negative (got {})", idx);
+                        }
+                        let idx = *idx as usize;
+                        while items.len() <= idx {
+                            items.push(Value::Null);
+                        }
+
+                        if path.len() == 1 {
+                            items[idx] = value;
+                        } else {
+                            Self::set_path(&mut items[idx], &path[1..], value, ctx_name);
+                        }
+                    }
+                    _ => panic!("'{}' is not an array", ctx_name),
+                }
+            }
         }
     }
 
@@ -365,10 +426,10 @@ impl Interpreter {
                 let obj = self.eval(object);
                 match obj {
                     Value::Json(json) => json
-                        .fields
-                        .get(member)
-                        .map(|f| f.value.clone())
-                        .unwrap_or(Value::Null),
+                    .fields
+                    .get(member)
+                    .map(|f| f.value.clone())
+                    .unwrap_or(Value::Null),
                     _ => panic!("This value has no field '{}'", member),
                 }
             }
@@ -478,8 +539,8 @@ impl Interpreter {
             left.as_ncti().cmp(&right.as_ncti())
         } else if is_float {
             left.as_float()
-                .partial_cmp(&right.as_float())
-                .unwrap_or(std::cmp::Ordering::Equal)
+            .partial_cmp(&right.as_float())
+            .unwrap_or(std::cmp::Ordering::Equal)
         } else {
             left.as_int().cmp(&right.as_int())
         }
@@ -518,9 +579,9 @@ impl Interpreter {
         if args.len() != function.params.len() {
             panic!(
                 "Function '{}' expects {} argument(s), got {}",
-                function.name,
-                function.params.len(),
-                args.len()
+                   function.name,
+                   function.params.len(),
+                   args.len()
             );
         }
 
@@ -550,16 +611,16 @@ fn cast_value(value: Value, target: &TypeNode) -> Value {
         TypeNode::Int => match value {
             Value::String(s) => Value::Int(
                 s.trim()
-                    .parse()
-                    .unwrap_or_else(|_| panic!("Could not convert \"{}\" to int", s)),
+                .parse()
+                .unwrap_or_else(|_| panic!("Could not convert \"{}\" to int", s)),
             ),
             other => Value::Int(other.as_int()),
         },
         TypeNode::Float => match value {
             Value::String(s) => Value::Float(
                 s.trim()
-                    .parse()
-                    .unwrap_or_else(|_| panic!("Could not convert \"{}\" to float", s)),
+                .parse()
+                .unwrap_or_else(|_| panic!("Could not convert \"{}\" to float", s)),
             ),
             other => Value::Float(other.as_float()),
         },
