@@ -217,13 +217,13 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_function(&mut self) -> TokenKind {
-        self.advance(); // пропускаем $
+        self.advance();
         let name = self.read_identifier();
         TokenKind::Function(name)
     }
 
     fn read_class(&mut self) -> TokenKind {
-        self.advance(); // пропускаем &
+        self.advance();
         let name = self.read_identifier();
         TokenKind::Class(name)
     }
