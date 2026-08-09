@@ -114,7 +114,7 @@ impl Parser {
     }
 
     fn parse_import_like(&mut self) -> ImportNode {
-        self.advance(); // пропускаем 'i' / 'a'
+        self.advance();
         self.consume(TokenKind::Colon);
 
         let mut names = vec![self.expect_identifier()];
@@ -233,8 +233,6 @@ impl Parser {
         FunctionNode { name: name.to_string(), params: Vec::new(), body }
     }
 
-    /// Разбирает список параметров определения функции: `(str#test, int#i)`.
-    /// Формат каждого параметра: `тип#имя`, через запятую, висячая запятая недопустима.
     fn parse_params(&mut self) -> Vec<(TypeNode, String)> {
         self.consume(TokenKind::OpenParen);
         let mut params = Vec::new();
@@ -258,10 +256,6 @@ impl Parser {
         params
     }
 
-    /// Смотрит вперёд через сбалансированные скобки `(...)` начиная с текущей
-    /// `(`, чтобы понять, идёт ли следом `{` (значит это объявление функции
-    /// `$f(...){...}`) или что-то другое (значит это вызов-выражение вида
-    /// `$f(...);`).
     fn parens_followed_by_brace(&self) -> bool {
         let mut i = self.pos;
         let mut depth = 0i32;
@@ -315,8 +309,19 @@ impl Parser {
             i += 2;
         }
 
-        is_dot(self.tokens.get(i).map(|t| &t.kind))
-            && matches!(self.tokens.get(i + 1).map(|t| &t.kind), Some(TokenKind::Hash))
+        if !(is_dot(self.tokens.get(i).map(|t| &t.kind))
+            && matches!(self.tokens.get(i + 1).map(|t| &t.kind), Some(TokenKind::Hash)))
+        {
+            return false;
+        }
+
+        match self.tokens.get(i + 2).map(|t| &t.kind) {
+            Some(TokenKind::Identifier(name)) if name == "null" => false,
+            Some(TokenKind::Identifier(name)) if name == "new" => {
+                matches!(self.tokens.get(i + 3).map(|t| &t.kind), Some(TokenKind::Assign))
+            }
+            _ => true,
+        }
     }
 
     fn parse_retype_or_addfield_statement(&mut self) -> Statement {
@@ -326,7 +331,7 @@ impl Parser {
 
         if self.check(&TokenKind::Dot) {
             let save = self.pos;
-            self.advance(); // '.'
+            self.advance();
 
             if let TokenKind::Identifier(name) = self.current().kind.clone() {
                 self.advance();
@@ -346,7 +351,7 @@ impl Parser {
         let is_new_field = matches!(&self.current().kind, TokenKind::Identifier(name) if name == "new");
 
         if is_new_field {
-            self.advance(); // 'new'
+            self.advance();
             self.consume(TokenKind::Assign);
             let (field_type, key, value) = self.parse_json_field();
             self.consume(TokenKind::Semicolon);
@@ -361,15 +366,22 @@ impl Parser {
     }
 
     fn parse_json_field(&mut self) -> (Option<TypeNode>, String, Expression) {
-        if let TokenKind::String(_) = &self.current().kind {
+        let next_is_colon = matches!(
+            self.tokens.get(self.pos + 1).map(|t| &t.kind),
+            Some(TokenKind::Colon)
+        );
+
+        if next_is_colon {
             let key = match &self.current().kind {
-                TokenKind::String(s) => {
-                    let s = s.clone();
-                    self.advance();
-                    s
-                }
-                _ => unreachable!(),
+                TokenKind::String(s) => s.clone(),
+                other => panic!(
+                    "Expected a string key, found {:?} ({}:{})",
+                    other,
+                    self.current().line,
+                    self.current().column
+                ),
             };
+            self.advance();
             self.consume(TokenKind::Colon);
             let value = self.parse_expression();
             return (None, key, value);
@@ -384,9 +396,11 @@ impl Parser {
                 self.advance();
                 s
             }
-            _ => panic!(
-                "Expected a string key after '#', found {:?}",
-                self.current().kind
+            other => panic!(
+                "Expected a string key after '#', found {:?} ({}:{})",
+                other,
+                self.current().line,
+                self.current().column
             ),
         };
 
@@ -433,9 +447,6 @@ impl Parser {
         match &self.current().kind {
             TokenKind::Hash => Statement::Variable(self.parse_variable()),
 
-            // `$name(...)`  -> объявление/вызов функции по имени.
-            // `$name.member(...)` (вызов вложенной функции, например `$v.px();`)
-            // общего вида — уходит в обычный разбор выражения ниже.
             TokenKind::Function(_)
                 if matches!(
                     self.tokens.get(self.pos + 1).map(|t| &t.kind),
@@ -477,6 +488,8 @@ impl Parser {
             TokenKind::Question => self.parse_if(),
 
             TokenKind::At => self.parse_loop(),
+
+            TokenKind::Percent => self.parse_try_catch(),
 
             TokenKind::Identifier(_) if self.looks_like_retype_or_addfield() => {
                 self.parse_retype_or_addfield_statement()
@@ -520,6 +533,15 @@ impl Parser {
             _ => {
                 let expr = self.parse_expression();
 
+                if self.check(&TokenKind::Dot)
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                        Some(TokenKind::Hash)
+                    )
+                {
+                    return self.parse_mutation_statement(expr);
+                }
+
                 if self.check(&TokenKind::Assign) {
                     self.advance();
                     let value = self.parse_expression();
@@ -530,6 +552,62 @@ impl Parser {
                     Statement::Expression(expr)
                 }
             }
+        }
+    }
+
+    fn parse_mutation_statement(&mut self, path: Expression) -> Statement {
+        self.consume(TokenKind::Dot);
+        self.consume(TokenKind::Hash);
+
+        let is_new = match &self.current().kind {
+            TokenKind::Identifier(name) if name == "new" => true,
+            TokenKind::Identifier(name) if name == "null" => false,
+            other => panic!("Expected 'new' or 'null' after '.#', found {:?}", other),
+        };
+        self.advance();
+
+        let accessor = self.parse_path_accessor();
+
+        if is_new {
+            self.consume(TokenKind::Assign);
+            let value = self.parse_expression();
+            self.consume(TokenKind::Semicolon);
+            Statement::CreateEntry { path, accessor, value }
+        } else {
+            self.consume(TokenKind::Semicolon);
+            Statement::DeleteEntry { path, accessor }
+        }
+    }
+
+    fn parse_path_accessor(&mut self) -> PathAccessor {
+        match &self.current().kind {
+            TokenKind::Dot => {
+                self.advance();
+                let key = match &self.current().kind {
+                    TokenKind::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        n
+                    }
+                    TokenKind::String(text) => {
+                        let n = text.clone();
+                        self.advance();
+                        n
+                    }
+                    other => panic!("Expected a field name after '.', found {:?}", other),
+                };
+                PathAccessor::Key(key)
+            }
+            TokenKind::OpenBracket => {
+                self.advance();
+                let index = self.parse_expression();
+                self.consume(TokenKind::CloseBracket);
+                PathAccessor::Index(index)
+            }
+            other => panic!(
+                "Expected '.key' or '[index]' after '#new'/'#null', found {:?}",
+                other
+            ),
         }
     }
 
@@ -586,6 +664,30 @@ impl Parser {
         }
 
         Statement::If { condition, body, else_if, else_body }
+    }
+
+    fn parse_try_catch(&mut self) -> Statement {
+        self.consume(TokenKind::Percent);
+        let try_body = self.parse_block();
+
+        match &self.current().kind {
+            TokenKind::Identifier(name) if name == "e" => {}
+            other => panic!(
+                "Expected 'e(var)' after try block, found {:?} ({}:{})",
+                other,
+                self.current().line,
+                self.current().column
+            ),
+        }
+        self.advance();
+
+        self.consume(TokenKind::OpenParen);
+        let error_var = self.expect_identifier();
+        self.consume(TokenKind::CloseParen);
+
+        let catch_body = self.parse_block();
+
+        Statement::TryCatch { try_body, error_var, catch_body }
     }
 
     fn parse_loop(&mut self) -> Statement {
@@ -744,6 +846,26 @@ impl Parser {
         loop {
             match &self.current().kind {
                 TokenKind::Dot => {
+                    if matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                        Some(TokenKind::Hash)
+                    ) {
+                        let is_mutation_keyword = matches!(
+                            self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                            Some(TokenKind::Identifier(name)) if name == "new" || name == "null"
+                        );
+
+                        if is_mutation_keyword {
+                            break;
+                        }
+
+                        self.advance();
+                        self.advance();
+                        let target_type = self.parse_type();
+                        expr = Expression::Cast { value: Box::new(expr), target_type };
+                        continue;
+                    }
+
                     self.advance();
 
                     let member = match &self.current().kind {

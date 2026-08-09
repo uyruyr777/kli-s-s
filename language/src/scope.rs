@@ -15,10 +15,20 @@ impl Scope {
         self.frames.push(HashMap::new());
     }
 
-    /// Выйти из блока
     pub fn pop(&mut self) {
         if self.frames.len() > 1 {
             self.frames.pop();
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn truncate(&mut self, depth: usize) {
+        let depth = depth.max(1);
+        if depth < self.frames.len() {
+            self.frames.truncate(depth);
         }
     }
 

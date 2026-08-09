@@ -188,4 +188,27 @@ pub enum Statement {
         key: String,
         value: Expression,
     },
+
+    CreateEntry {
+        path: Expression,
+        accessor: PathAccessor,
+        value: Expression,
+    },
+
+    DeleteEntry {
+        path: Expression,
+        accessor: PathAccessor,
+    },
+
+    TryCatch {
+        try_body: Vec<Statement>,
+        error_var: String,
+        catch_body: Vec<Statement>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum PathAccessor {
+    Key(String),
+    Index(Expression),
 }
