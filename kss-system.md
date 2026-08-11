@@ -43,28 +43,6 @@ respectively) — otherwise a panic with a signature hint.
 Panics if `max < min`. The generator is a custom one (not
 cryptographic), based on system time and a call counter.
 
-## Windows — `window`
-
-| Function | Description |
-|---|---|
-| `window.open(xh, yh, x, y, name, sysid)` | open a real window (X11/Windows via `minifb`) with width `xh`, height `yh`, at position `(x, y)`, titled `name`; `sysid` is an integer id the script makes up itself and uses afterward to refer to this window |
-| `window.clos(sysid)` | close the window with the given `sysid` |
-
-Exactly 6 arguments for `open` and 1 for `clos`, otherwise a panic.
-`window.open` panics if a window with that `sysid` is already open, or
-if actually opening the window at the OS level failed. Returns `bool`
-(success). `window.clos` returns `bool` — whether a window with that
-`sysid` was found at all.
-
-While a window is open, the interpreter checks on every tick whether
-it's been closed (via the close button or the `Escape` key) — no
-event is delivered inside the script for this, but the open window
-keeps the [`@update` loop](kss.md#10-start-and-update) from ending
-until it closes.
-
-Drawing specific pixels/shapes from a script isn't implemented yet —
-the window is just filled with a background color.
-
 ## The `cons.imput` Event
 
 ```kli-s-s
@@ -79,10 +57,11 @@ newline.
 
 ## Limitations
 
-- Drawing inside an open window (pixels, shapes) isn't implemented —
-  background fill only.
 - `rand.rdom` is not a cryptographic generator, not suitable for
   anything that needs real randomness.
 - `file.read` silently returns `""` on any read error (doesn't
   panic) — you can't tell "file is empty" from "file doesn't exist"
   through this function; use `file.exists` for that.
+
+Windows and drawing (`window.*`) moved to the
+[`render`](kss-render.md) core.

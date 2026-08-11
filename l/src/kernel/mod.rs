@@ -1,4 +1,5 @@
 pub mod math;
+pub mod render;
 pub mod system;
 
 use crate::runtime::Runtime;
@@ -12,6 +13,11 @@ pub fn load(runtime: &mut Runtime, name: &str) -> Result<(), String> {
 
         "math" => {
             math::load(runtime);
+            Ok(())
+        }
+
+        "render" => {
+            render::load(runtime);
             Ok(())
         }
 

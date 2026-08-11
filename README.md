@@ -6,8 +6,9 @@ install command
 ```bash
 curl -fsSL https://raw.githubusercontent.com/uyruyr777/kli-s-s/main/don.sh | bash
 ```
-- [`kss-system.md`](kss-system.md) — the `system` core (console, files, windows, `rand`)
+- [`kss-system.md`](kss-system.md) — the `system` core (console, files, `rand`)
 - [`kss-math.md`](kss-math.md) — the `math` core and the `ncti` type
+- [`kss-render.md`](kss-render.md) — the `render` core (windows and drawing)
 
 ---
 
@@ -70,7 +71,8 @@ a:discord;
 ```
 
 Keyword, `:`, a comma-separated list of names, `;`. Available cores:
-`system` ([`kss-system.md`](kss-system.md)), `math` ([`kss-math.md`](kss-math.md)).
+`system` ([`kss-system.md`](kss-system.md)), `math` ([`kss-math.md`](kss-math.md)),
+`render` ([`kss-render.md`](kss-render.md)).
 Available plugins: `discord` ([`kss-discord.md`](kss-discord.md), a stub).
 More on the import mechanism itself — [section 20](#20-cores-and-plugins).
 
@@ -460,6 +462,7 @@ Documentation for each specific core/plugin lives in its own file:
 |---|---|---|---|
 | `system` | core | `i:system;` | [`kss-system.md`](kss-system.md) |
 | `math` | core | `i:math;` | [`kss-math.md`](kss-math.md) |
+| `render` | core | `i:render;` | [`kss-render.md`](kss-render.md) |
 | `discord` | plugin | `a:discord;` | [`kss-discord.md`](kss-discord.md) |
 
 ## 21. Full Example
@@ -512,4 +515,3 @@ The example uses `rand.rdom`, `cons.print`/`cons.println`, and the
 
 Limitations of specific cores and plugins (`ncti`, windows, `discord`)
 are in their own documentation files.
-

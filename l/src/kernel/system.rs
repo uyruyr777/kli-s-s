@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
 use crate::runtime::Runtime;
 use crate::value::Value;
 
@@ -18,14 +15,8 @@ pub fn load(runtime: &mut Runtime) {
     runtime.namespace("time")
        .function("sleep", time_sleep);
 
-    runtime.namespace("window")
-       .function("open", window_open)
-       .function("clos", window_close);
-
     runtime.namespace("rand")
        .function("rdom", rand_rdom);
-
-    runtime.register_tick(pump_windows);
 
     runtime.event_source("cons", "imput", cons_poll_input);
 
@@ -183,103 +174,5 @@ fn cons_poll_input() -> Option<Value> {
         }
         Err(_) => None,
     }
-
-}
-
-struct WindowHandle {
-    window: minifb::Window,
-    width: usize,
-    height: usize,
-    buffer: Vec<u32>,
-}
-
-unsafe impl Send for WindowHandle {}
-
-fn windows() -> &'static Mutex<HashMap<i64, WindowHandle>> {
-    static WINDOWS: OnceLock<Mutex<HashMap<i64, WindowHandle>>> = OnceLock::new();
-    WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn window_open(args: Vec<Value>) -> Value {
-
-    if args.len() != 6 {
-        panic!("window.open(xh, yh, x, y, name, sysid)");
-    }
-
-    let width = args[0].as_int().max(1) as usize;
-    let height = args[1].as_int().max(1) as usize;
-    let x = args[2].as_int();
-    let y = args[3].as_int();
-    let name = args[4].as_string();
-    let sysid = args[5].as_int();
-
-    let mut registry = windows().lock().unwrap();
-
-    if registry.contains_key(&sysid) {
-        panic!("window.open: a window with sysid={} already exists", sysid);
-    }
-
-    let mut window = minifb::Window::new(
-        &name,
-        width,
-        height,
-        minifb::WindowOptions::default(),
-    ).unwrap_or_else(|err| panic!("window.open: failed to open window: {}", err));
-
-    window.set_position(x as isize, y as isize);
-
-    let buffer = vec![0x00303030u32; width * height];
-    window
-        .update_with_buffer(&buffer, width, height)
-        .unwrap_or_else(|err| panic!("window.open: failed to draw: {}", err));
-
-    println!(
-        "[window] opened window #{} \"{}\" {}x{} at position ({}, {})",
-        sysid, name, width, height, x, y
-    );
-
-    registry.insert(sysid, WindowHandle { window, width, height, buffer });
-
-    Value::Bool(true)
-
-}
-
-fn window_close(args: Vec<Value>) -> Value {
-
-    if args.len() != 1 {
-        panic!("window.clos(sysid)");
-    }
-
-    let sysid = args[0].as_int();
-    let existed = windows().lock().unwrap().remove(&sysid).is_some();
-
-    if existed {
-        println!("[window] closed window #{}", sysid);
-    } else {
-        println!("[window] window #{} not found", sysid);
-    }
-
-    Value::Bool(existed)
-
-}
-
-fn pump_windows() -> bool {
-
-    let mut registry = windows().lock().unwrap();
-
-    registry.retain(|_, handle| {
-        let still_open = handle.window.is_open()
-            && !handle.window.is_key_down(minifb::Key::Escape);
-
-        if still_open {
-            let _ = handle
-                .window
-                .update_with_buffer(&handle.buffer, handle.width, handle.height);
-        }
-
-        still_open
-    });
-
-    !registry.is_empty()
 
 }
