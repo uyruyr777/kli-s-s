@@ -1,7 +1,7 @@
 # The `system` Core
 
 Part of the interpreter's main distribution. Imported via `i:system;`
-(see the [main documentation](kss.md#3-imports-cores-and-plugins)).
+(see the [main documentation](README.md#3-imports-cores-and-plugins)).
 
 ```kli-s-s
 i:system;

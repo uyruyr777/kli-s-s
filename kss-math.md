@@ -1,7 +1,7 @@
 # The `math` Core and the `ncti` Type
 
 Part of the interpreter's main distribution. Imported via `i:math;`
-(see the [main documentation](kss.md#3-imports-cores-and-plugins)).
+(see the [main documentation](README.md#3-imports-cores-and-plugins)).
 
 ```kli-s-s
 i:math;

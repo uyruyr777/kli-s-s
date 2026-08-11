@@ -1,7 +1,7 @@
 # The `render` Core
 
 Part of the interpreter's main distribution. Imported via `i:render;`
-(see the [main documentation](kss.md#3-imports-cores-and-plugins)).
+(see the [main documentation](README.md#3-imports-cores-and-plugins)).
 
 ```kli-s-s
 i:render;
