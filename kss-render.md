@@ -26,7 +26,7 @@ if actually opening the window at the OS level failed. Returns `bool`
 While a window is open, the interpreter checks on every tick whether
 it's been closed (via the close button or the `Escape` key) — no
 event is delivered inside the script for this, but the open window
-keeps the [`@update` loop](kss.md#10-start-and-update) from ending
+keeps the [`@update` loop](README.md#10-start-and-update) from ending
 until it closes. The window is redrawn from its buffer every tick
 automatically — there's no separate "present"/"flip" call.
 
