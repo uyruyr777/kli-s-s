@@ -1,9 +1,31 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use crate::ast::*;
 use crate::runtime::Runtime;
 use crate::scope::Scope;
 use crate::value::{JsonField, JsonObject, Value, ValueType};
+
+thread_local! {
+    static CURRENT: Cell<*mut Interpreter> = Cell::new(std::ptr::null_mut());
+}
+
+struct CurrentGuard;
+
+impl Drop for CurrentGuard {
+    fn drop(&mut self) {
+        CURRENT.with(|cell| cell.set(std::ptr::null_mut()));
+    }
+}
+
+pub fn with_current<R>(f: impl FnOnce(&mut Interpreter) -> R) -> R {
+    let ptr = CURRENT.with(|cell| cell.get());
+    if ptr.is_null() {
+        panic!("fs.kss/fs.imp can only be used while a script is running");
+    }
+    let interpreter = unsafe { &mut *ptr };
+    f(interpreter)
+}
 
 enum Flow {
     Normal,
@@ -17,6 +39,7 @@ pub struct Interpreter {
     scope: Scope,
     functions: HashMap<String, FunctionNode>,
     event_handlers: HashMap<(String, String), EventHandlerNode>,
+    extra_updates: Vec<Vec<Statement>>,
 }
 
 impl Interpreter {
@@ -26,10 +49,14 @@ impl Interpreter {
             scope: Scope::new(),
             functions: HashMap::new(),
             event_handlers: HashMap::new(),
+            extra_updates: Vec::new(),
         }
     }
 
     pub fn run(&mut self, program: &Program) {
+        CURRENT.with(|cell| cell.set(self as *mut Interpreter));
+        let _guard = CurrentGuard;
+
         for var in &program.globals {
             self.declare_variable(var);
         }
@@ -61,7 +88,11 @@ impl Interpreter {
 
         let tick_functions = self.runtime.tick_functions.clone();
 
-        if program.update.is_none() && active_sources.is_empty() && tick_functions.is_empty() {
+        if program.update.is_none()
+            && active_sources.is_empty()
+            && tick_functions.is_empty()
+            && self.extra_updates.is_empty()
+        {
             return;
         }
 
@@ -86,6 +117,52 @@ impl Interpreter {
             if let Some(update) = &program.update {
                 self.exec_statements(&update.body);
             }
+
+            let extra_updates = self.extra_updates.clone();
+            for body in &extra_updates {
+                self.exec_statements(body);
+            }
+        }
+    }
+
+    pub fn run_inline(&mut self, program: &Program) {
+        for import in &program.imports {
+            for name in &import.names {
+                if let Err(err) = crate::kernel::load(&mut self.runtime, name) {
+                    panic!("fs.kss: {}", err);
+                }
+            }
+        }
+
+        for import in &program.plugins {
+            for name in &import.names {
+                if let Err(err) = crate::plugin::load(&mut self.runtime, name) {
+                    panic!("fs.kss: {}", err);
+                }
+            }
+        }
+
+        for var in &program.globals {
+            self.declare_variable(var);
+        }
+
+        for function in &program.functions {
+            self.register_function(function, None);
+        }
+
+        for handler in &program.event_handlers {
+            self.event_handlers.insert(
+                (handler.namespace.clone(), handler.event.clone()),
+                handler.clone(),
+            );
+        }
+
+        if let Some(start) = &program.start {
+            self.exec_statements(&start.body);
+        }
+
+        if let Some(update) = &program.update {
+            self.extra_updates.push(update.body.clone());
         }
     }
 

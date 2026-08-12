@@ -7,10 +7,11 @@ pub fn load(runtime: &mut Runtime) {
        .function("print", cons_print)
        .function("println", cons_println);
 
-    runtime.namespace("file")
-       .function("read", file_read)
-       .function("write", file_write)
-       .function("exists", file_exists);
+    runtime.namespace("fs")
+       .function("imp", fs_imp)
+       .function("write", fs_write)
+       .function("exists", fs_exists)
+       .function("kss", fs_kss);
 
     runtime.namespace("time")
        .function("sleep", time_sleep);
@@ -68,11 +69,11 @@ fn time_sleep(args: Vec<Value>) -> Value {
 
 }
 
-fn file_exists(args: Vec<Value>) -> Value {
+fn fs_exists(args: Vec<Value>) -> Value {
 
     if args.len() != 1 {
 
-        panic!("file.exists(path)");
+        panic!("fs.exists(path)");
 
     }
 
@@ -86,29 +87,28 @@ fn file_exists(args: Vec<Value>) -> Value {
 
 }
 
-fn file_read(args: Vec<Value>) -> Value {
+fn fs_imp(args: Vec<Value>) -> Value {
 
     if args.len() != 1 {
 
-        panic!("file.read(path)");
+        panic!("fs.imp(path)");
 
     }
 
     let path = args[0].as_string();
 
-    let text = std::fs::read_to_string(path)
-
-        .unwrap_or_default();
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("fs.imp: could not read '{}': {}", path, err));
 
     Value::String(text)
 
 }
 
-fn file_write(args: Vec<Value>) -> Value {
+fn fs_write(args: Vec<Value>) -> Value {
 
     if args.len() != 2 {
 
-        panic!("file.write(path,text)");
+        panic!("fs.write(path, text)");
 
     }
 
@@ -116,9 +116,35 @@ fn file_write(args: Vec<Value>) -> Value {
 
     let text = args[1].as_string();
 
-    std::fs::write(path, text)
+    std::fs::write(&path, text)
+        .unwrap_or_else(|err| panic!("fs.write: could not write '{}': {}", path, err));
 
-        .expect("Failed to write file");
+    Value::Bool(true)
+
+}
+
+fn fs_kss(args: Vec<Value>) -> Value {
+
+    if args.len() != 1 {
+
+        panic!("fs.kss(path)");
+
+    }
+
+    let path = args[0].as_string();
+
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("fs.kss: could not read '{}': {}", path, err));
+
+    let mut lexer = crate::lexer::Lexer::new(source);
+    let tokens = lexer.tokenize();
+
+    let mut parser = crate::parser::Parser::new(tokens);
+    let program = parser.parse();
+
+    crate::interpreter::with_current(|interpreter| {
+        interpreter.run_inline(&program);
+    });
 
     Value::Null
 
